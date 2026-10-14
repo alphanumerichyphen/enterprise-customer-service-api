@@ -1,0 +1,18 @@
+# Virtual environment
+.venv/
+
+# Environment variables and secrets
+.env
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+
+# Test artifacts
+.pytest_cache/
+
+# IDE files
+.idea/
+
+# macOS files
+.DS_Store

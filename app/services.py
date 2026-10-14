@@ -6,7 +6,6 @@ from app.exceptions import (
     TicketNotFound,
 )
 
-
 class TicketService:
 
     def __init__(self):
