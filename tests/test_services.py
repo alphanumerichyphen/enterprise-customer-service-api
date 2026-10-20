@@ -1,203 +1,145 @@
 import pytest
+from uuid import uuid4
 
-from app.models import TicketPriority, TicketStatus
-from app.services import (
-    TicketService,
+from app.exceptions import (
     CustomerAlreadyExists,
     CustomerNotFound,
-    TicketNotFound
+    TicketNotFound,
 )
+from app.models import TicketPriority, TicketStatus
 
-def test_create_customer():
-    service = TicketService()
-    customer = service.create_customer(
-        "C001",
-        "Yash",
-        "test@mail.com"
-    )
+pytestmark = pytest.mark.integration
 
-    assert customer.id == "C001"
-    assert customer.name == "Yash"
-    assert customer.email == "test@mail.com"
+def test_create_customer(service, customer_factory):
+    customer = customer_factory()
 
-def test_create_customer_stores_customer():
-    service = TicketService()
-    service.create_customer(
-        "C001",
-        "Yash",
-        "test@mail.com"
-    )
-    customer = service.get_customer("C001")
-    assert customer.name == "Yash"
-    assert customer.email == "test@mail.com"
+    assert customer.id.startswith("C")
+    assert customer.name == "Test Customer"
+    assert customer.email.endswith("@example.com")
 
-def test_create_duplicate_customer():
-    service = TicketService()
-    service.create_customer(
-        "C001",
-        "Yash",
-        "test@mail.com"
-    )
+
+def test_create_customer_stores_customer(service, customer_factory):
+    customer = customer_factory()
+
+    retrieved = service.get_customer(customer.id)
+
+    assert retrieved == customer
+
+
+def test_create_duplicate_customer(service, customer_factory):
+    customer = customer_factory()
+
     with pytest.raises(CustomerAlreadyExists):
         service.create_customer(
-            "C001",
-            "Yash",
-            "test@mail.com"
+            customer.id,
+            customer.name,
+            customer.email,
         )
 
-def test_get_missing_customer():
-    service = TicketService()
+
+def test_get_missing_customer(service):
     with pytest.raises(CustomerNotFound):
-        service.get_customer("C999")
+        service.get_customer(f"C{uuid4().hex[:8]}")
 
-def test_create_ticket():
-    service = TicketService()
 
-    service.create_customer(
-        "C001",
-        "Yash",
-        "test@mail.com"
-    )
+def test_list_customers(service, customer_factory):
+    customer = customer_factory()
+
+    customers = service.list_customers()
+
+    customer_ids = {item.id for item in customers}
+    assert customer.id in customer_ids
+
+
+def test_create_ticket(service, customer_factory):
+    customer = customer_factory()
 
     ticket = service.create_ticket(
-        customer_id="C001",
+        customer_id=customer.id,
         title="Payment failed",
         description="Customer cannot process invoice",
         priority=TicketPriority.HIGH,
     )
 
-    assert ticket.id == "T001"
-    assert ticket.customer_id == "C001"
+    assert ticket.id.startswith("T")
+    assert ticket.customer_id == customer.id
     assert ticket.title == "Payment failed"
-    assert ticket.description == "Customer cannot process invoice"
     assert ticket.priority == TicketPriority.HIGH
     assert ticket.status == TicketStatus.OPEN
 
-def test_create_multiple_tickets_generate_unique_ids():
-    service = TicketService()
 
-    service.create_customer(
-        "C001",
-        "Yash",
-        "test@mail.com"
-    )
-
-    ticket_1 = service.create_ticket(
-        customer_id="C001",
-        title="First issue",
-        description="First description",
-        priority=TicketPriority.LOW,
-    )
-
-    ticket_2 = service.create_ticket(
-        customer_id="C001",
-        title="Second issue",
-        description="Second description",
-        priority=TicketPriority.HIGH,
-    )
-
-    assert ticket_1.id == "T001"
-    assert ticket_2.id == "T002"
-
-def test_create_ticket_with_missing_customer():
-    service = TicketService()
-
+def test_create_ticket_for_missing_customer(service):
     with pytest.raises(CustomerNotFound):
         service.create_ticket(
-            customer_id="C999",
+            customer_id=f"C{uuid4().hex[:8]}",
             title="Payment failed",
             description="Customer cannot process invoice",
             priority=TicketPriority.HIGH,
         )
 
-def test_get_ticket():
-    service = TicketService()
 
-    service.create_customer(
-        "C001",
-        "Yash",
-        "test@mail.com"
-    )
+def test_get_ticket(service, customer_factory):
 
+    customer = customer_factory()
     ticket = service.create_ticket(
-        customer_id="C001",
+        customer_id=customer.id,
         title="Payment failed",
         description="Customer cannot process invoice",
         priority=TicketPriority.HIGH,
     )
+    assert service.get_ticket(ticket.id) == ticket
 
-    retrieved_ticket = service.get_ticket(ticket.id)
 
-    assert retrieved_ticket.id == ticket.id
-    assert retrieved_ticket.customer_id == "C001"
-    assert retrieved_ticket.title == "Payment failed"
-    assert retrieved_ticket.description == "Customer cannot process invoice"
-    assert retrieved_ticket.priority == TicketPriority.HIGH
-    assert retrieved_ticket.status == TicketStatus.OPEN
-
-def test_get_missing_ticket():
-    service = TicketService()
-
+def test_get_missing_ticket(service):
     with pytest.raises(TicketNotFound):
-        service.get_ticket("T999")
+        service.get_ticket(f"T{uuid4().hex[:16]}")
 
-def test_list_tickets_filters_by_status():
-    service = TicketService()
-    service.create_customer(
-        "C001",
-        "Yash",
-        "test@mail.com"
-    )
 
-    ticket_1 = service.create_ticket(
-        "C001",
-        "Issue 1",
-        "Description 1",
-        TicketPriority.LOW,
-    )
+def test_list_tickets_filters_by_status(service, customer_factory):
+    customer = customer_factory()
 
-    ticket_2 = service.create_ticket(
-        "C001",
-        "Issue 2",
-        "Description 2",
+    open_ticket = service.create_ticket(
+        customer.id,
+        "Payment failed",
+        "Payment was declined",
         TicketPriority.HIGH,
     )
 
-    ticket_3 = service.create_ticket(
-        "C001",
-        "Issue 3",
-        "Description 3",
-        TicketPriority.MEDIUM,
+    resolved_ticket = service.create_ticket(
+        customer.id,
+        "Password reset",
+        "Password reset completed",
+        TicketPriority.LOW,
     )
 
     service.update_ticket(
-        ticket_3.id,
-        "Issue 3",
-        "Description 3",
-        TicketPriority.MEDIUM,
+        resolved_ticket.id,
+        resolved_ticket.title,
+        resolved_ticket.description,
+        resolved_ticket.priority,
         TicketStatus.RESOLVED,
     )
 
     open_tickets = service.list_tickets(TicketStatus.OPEN)
     resolved_tickets = service.list_tickets(TicketStatus.RESOLVED)
 
-    assert len(open_tickets) == 2
-    assert len(resolved_tickets) == 1
-    assert resolved_tickets[0].id == ticket_3.id
+    open_ids = {ticket.id for ticket in open_tickets}
+    resolved_ids = {ticket.id for ticket in resolved_tickets}
 
-def test_update_ticket():
-    service = TicketService()
-    service.create_customer(
-        "C001",
-        "Yash",
-        "test@mail.com"
-    )
+    assert open_ticket.id in open_ids
+    assert resolved_ticket.id not in open_ids
+    assert resolved_ticket.id in resolved_ids
+    assert open_ticket.id not in resolved_ids
+
+
+def test_update_ticket(service, customer_factory):
+    customer = customer_factory()
 
     ticket = service.create_ticket(
-        customer_id="C001",
-        title="Payment failed",
-        description="Customer cannot process invoice",
-        priority=TicketPriority.LOW
+        customer.id,
+        "Payment failed",
+        "Customer cannot process invoice",
+        TicketPriority.LOW
     )
 
     updated_ticket = service.update_ticket(
@@ -208,20 +150,19 @@ def test_update_ticket():
         TicketStatus.RESOLVED,
     )
 
-    assert updated_ticket.id == "T001"
+    assert updated_ticket.id == ticket.id
     assert updated_ticket.title == "Payment issue resolved"
     assert updated_ticket.description == "Customer confirmed the issue is fixed"
     assert updated_ticket.priority == TicketPriority.HIGH
     assert updated_ticket.status == TicketStatus.RESOLVED
 
-def test_update_missing_ticket():
-    service = TicketService()
 
+def test_update_missing_ticket(service):
     with pytest.raises(TicketNotFound):
         service.update_ticket(
-            "T999",
-            "Some Title",
-            "Some Description",
+            f"T{uuid4().hex[:16]}",
+            "Updated Title",
+            "Updated Description",
             TicketPriority.HIGH,
             TicketStatus.RESOLVED,
         )

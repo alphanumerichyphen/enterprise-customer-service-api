@@ -1,38 +1,45 @@
+from uuid import uuid4
+
+from app.database import SessionLocal
 from app.models import TicketPriority, TicketStatus
 from app.services import TicketService
 
+
 def main():
-    service = TicketService()
+    customer_id = f"C{uuid4().hex[:8]}"
 
-    customer = service.create_customer(
-        "C001",
-        "Yash",
-        "test@mail.com",
-    )
+    with SessionLocal.begin() as session:
+        service = TicketService(session)
 
-    ticket = service.create_ticket(
-        customer_id=customer.id,
-        title="Payment failed",
-        description="Customer cannot process invoice",
-        priority=TicketPriority.HIGH,
-    )
+        customer = service.create_customer(
+            customer_id=customer_id,
+            name="Demo Customer",
+            email=f"{customer_id.lower()}@example.com",
+        )
 
-    print("Created customer:")
-    print(customer)
+        ticket = service.create_ticket(
+            customer_id=customer.id,
+            title="Payment failed",
+            description="Customer cannot process invoice",
+            priority=TicketPriority.HIGH,
+        )
 
-    print("\nCreated ticket:")
-    print(ticket)
+        print("Created customer:")
+        print(customer)
 
-    service.update_ticket(
-        ticket.id,
-        "Payment issue resolved",
-        "Customer confirmed the issue is fixed",
-        TicketPriority.MEDIUM,
-        TicketStatus.RESOLVED,
-    )
+        print("\nCreated ticket:")
+        print(ticket)
 
-    print("\nUpdated ticket:")
-    print(service.get_ticket(ticket.id))
+        updated_ticket = service.update_ticket(
+            ticket_id=ticket.id,
+            title="Payment issue resolved",
+            description="Customer confirmed the issue is fixed",
+            priority=TicketPriority.MEDIUM,
+            status=TicketStatus.RESOLVED,
+        )
+
+        print("\nUpdated ticket:")
+        print(service.get_ticket(ticket.id))
 
 
 # Press the green button in the gutter to run the script.

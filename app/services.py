@@ -1,61 +1,89 @@
-from typing import Optional
-from app.models import Customer, Ticket, TicketPriority, TicketStatus
+from uuid import uuid4
+from sqlalchemy.orm import Session
 from app.exceptions import (
     CustomerAlreadyExists,
     CustomerNotFound,
     TicketNotFound,
 )
+from app.models import Customer, Ticket, TicketPriority, TicketStatus
+from app.repositories.customer_repository import CustomerRepository
+from app.repositories.ticket_repository import TicketRepository
+
 
 class TicketService:
 
-    def __init__(self):
-        self.customers = {}
-        self.tickets = {}
-        self.next_ticket_id = 1
+    def __init__(self, session: Session):
+        self.customer_repository = CustomerRepository(session)
+        self.ticket_repository = TicketRepository(session)
 
     def create_customer(self, customer_id: str, name: str, email: str) -> Customer:
-        if customer_id in self.customers: # use 'in' to check existence of key when value is not needed
-            raise CustomerAlreadyExists("A customer with this id already exists")
-        c = Customer(id=customer_id, name=name, email=email)
-        self.customers[c.id] = c
-        return c
+        if self.customer_repository.get(customer_id) is not None:
+            raise CustomerAlreadyExists("Customer with this id already exists")
+
+        customer = Customer(
+            id=customer_id,
+            name=name,
+            email=email,
+        )
+
+        return self.customer_repository.create(customer)
+
 
     def get_customer(self, customer_id: str) -> Customer:
-        if customer_id not in self.customers:
+        customer = self.customer_repository.get(customer_id)
+        if customer is None:
             raise CustomerNotFound("Customer with this id does not exist")
+        return customer
 
-        return self.customers[customer_id]
 
     def list_customers(self) -> list[Customer]:
-        return list(self.customers.values())
+        return self.customer_repository.list()
+
 
     def create_ticket(self, customer_id: str, title: str, description: str, priority: TicketPriority) -> Ticket:
-        if customer_id not in self.customers: # use 'in' to check existence of key when value is not needed
-            raise CustomerNotFound("A customer with this id does not exist")
-        ticket_id = f"T{self.next_ticket_id:03d}"
-        self.next_ticket_id += 1
-        t = Ticket(id=ticket_id, customer_id=customer_id, title=title, description=description, priority=priority, status=TicketStatus.OPEN)
-        self.tickets[t.id] = t
-        return t
+        customer = self.customer_repository.get(customer_id)
+
+        if customer is None:
+            raise CustomerNotFound("Customer with this id does not exist")
+
+        ticket = Ticket(
+            id=f"T{uuid4().hex[:16]}",
+            customer_id=customer_id,
+            title=title,
+            description=description,
+            priority=priority,
+            status=TicketStatus.OPEN,
+        )
+        # created in local now pass it to ticket repository which stores in database and returns a domain object
+        return self.ticket_repository.create(ticket)
+
 
     def get_ticket(self, ticket_id: str) -> Ticket:
-        if ticket_id not in self.tickets:
-            raise TicketNotFound("Ticket with this id does not exist")
-
-        return self.tickets[ticket_id]
-
-    def list_tickets(self, status: Optional[TicketStatus] = None) -> list[Ticket]:
-        if status is None:
-            return list(self.tickets.values())
-
-        return [ticket for ticket in self.tickets.values() if ticket.status == status]
-
-    def update_ticket(self, ticket_id: str, title: str, description: str, priority: TicketPriority, status: TicketStatus):
-        ticket = self.tickets.get(ticket_id)
+        ticket = self.ticket_repository.get(ticket_id)
         if ticket is None:
             raise TicketNotFound("Ticket with this id does not exist")
-        ticket.title = title
-        ticket.description = description
-        ticket.priority = priority
-        ticket.status = status
         return ticket
+
+    # Ignores the status value and returns all tickets
+    def list_tickets(self, status: TicketStatus | None = None) -> list[Ticket]:
+        return self.ticket_repository.list_tickets(status)
+
+
+    def update_ticket(self, ticket_id: str, title: str, description: str, priority: TicketPriority, status: TicketStatus) -> Ticket:
+        existing_ticket = self.ticket_repository.get(ticket_id)
+        if existing_ticket is None:
+            raise TicketNotFound("Ticket with this id does not exist")
+        updated_ticket = Ticket(
+            id=existing_ticket.id,
+            customer_id=existing_ticket.customer_id,
+            title=title,
+            description=description,
+            priority=priority,
+            status=status,
+        )
+
+        result = self.ticket_repository.update(updated_ticket)
+
+        if result is None:
+            raise TicketNotFound("Ticket with this id does not exist")
+        return result
